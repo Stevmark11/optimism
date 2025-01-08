@@ -7,6 +7,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/log"
 
 	"github.com/ethereum-optimism/optimism/op-service/eth"
@@ -51,8 +52,76 @@ func NewFromEntryStore(logger log.Logger, m Metrics, store EntryStore) (*DB, err
 	return db, nil
 }
 
+func (db *DB) ReplaceInvalidatedBlock(replacementDerived eth.BlockRef, invalidated common.Hash) error {
+	db.rwLock.Lock()
+	defer db.rwLock.Unlock()
+
+	// We take the last occurrence. This is where it started to be considered invalid,
+	// and where we thus stopped building additional entries for it.
+	index, link, err := db.lastDerivedFrom(replacementDerived.Number)
+	if err != nil {
+		return fmt.Errorf("failed to find point to rewind to for replace work: %w", err)
+	}
+	if !link.invalidated {
+		return fmt.Errorf("cannot replace block %d, that was not invalidated, with block %s: %w", link.derived, replacementDerived, types.ErrConflict)
+	}
+	if link.derived.Hash != invalidated {
+		return fmt.Errorf("cannot replace invalidated %s, DB contains %s: %w", invalidated, link.derived, types.ErrConflict)
+	}
+	// Remove the invalidated placeholder and everything after
+	err = db.store.Truncate(index - 1)
+	if err != nil {
+		return err
+	}
+	// Find the parent-block of derived-from.
+	// We need this to build a block-ref, so the DB can be consistency-checked when the next entry is added.
+	// There is always one, since the first entry in the DB should never be an invalidated one.
+	prevDerivedFrom, err := db.PreviousDerivedFrom(link.derivedFrom.ID())
+	if err != nil {
+		return err
+	}
+	replacement := types.DerivedBlockRefPair{
+		DerivedFrom: link.derivedFrom.ForceWithParent(prevDerivedFrom.ID()),
+		Derived:     replacementDerived,
+	}
+	// Insert the replacement
+	if err := db.addLink(replacement.DerivedFrom, replacement.Derived, invalidated); err != nil {
+		return fmt.Errorf("failed to add %s as replacement at %s: %w", replacement.Derived, replacement.DerivedFrom, err)
+	}
+	db.m.RecordDBDerivedEntryCount(int64(index))
+	return nil
+}
+
+func (db *DB) RewindAndInvalidate(invalidated types.DerivedBlockRefPair) error {
+	db.rwLock.Lock()
+	defer db.rwLock.Unlock()
+
+	index, link, err := db.firstDerivedFrom(invalidated.Derived.Number)
+	if err != nil {
+		return fmt.Errorf("failed to find point to rewind to: %w", err)
+	}
+	if link.derived.Hash != invalidated.Derived.Hash {
+		return fmt.Errorf("cannot revert invalidated %s, DB contains %s: %w", invalidated.Derived, link.derived, types.ErrConflict)
+	}
+	// TODO: first-seen derivedFrom might be older than when it was invalidated. (needs fix!!!)
+	// maybe leave derived-from entries with num < invalidated.derivedFrom ?
+
+	err = db.store.Truncate(index - 1)
+	if err != nil {
+		return err
+	}
+	// Re-insert the entry, but consider it invalidated now.
+	if err := db.addLink(invalidated.DerivedFrom, invalidated.Derived, invalidated.Derived.Hash); err != nil {
+		return fmt.Errorf("failed to register %s as invalidated at %s: %w", invalidated.Derived, invalidated.DerivedFrom, err)
+	}
+	db.m.RecordDBDerivedEntryCount(int64(index))
+	return nil
+}
+
 // Rewind to the last entry that was derived from a L1 block with the given block number.
 func (db *DB) Rewind(derivedFrom uint64) error {
+	db.rwLock.RLock()
+	defer db.rwLock.RUnlock()
 	index, _, err := db.lastDerivedAt(derivedFrom)
 	if err != nil {
 		return fmt.Errorf("failed to find point to rewind to: %w", err)
@@ -104,23 +173,30 @@ func (db *DB) PreviousDerived(derived eth.BlockID) (prevDerived types.BlockSeal,
 // Latest returns the last known values:
 // derivedFrom: the L1 block that the L2 block is safe for (not necessarily the first, multiple L2 blocks may be derived from the same L1 block).
 // derived: the L2 block that was derived (not necessarily the first, the L1 block may have been empty and repeated the last safe L2 block).
-func (db *DB) Latest() (derivedFrom types.BlockSeal, derived types.BlockSeal, err error) {
+func (db *DB) Latest() (pair types.DerivedBlockSealPair, invalidated bool, err error) {
 	db.rwLock.RLock()
 	defer db.rwLock.RUnlock()
-	return db.latest()
+	link, err := db.latest()
+	if err != nil {
+		return types.DerivedBlockSealPair{}, false, err
+	}
+	return types.DerivedBlockSealPair{
+		DerivedFrom: link.derivedFrom,
+		Derived:     link.derived,
+	}, link.invalidated, nil
 }
 
 // latest is like Latest, but without lock, for internal use.
-func (db *DB) latest() (derivedFrom types.BlockSeal, derived types.BlockSeal, err error) {
+func (db *DB) latest() (link LinkEntry, err error) {
 	lastIndex := db.store.LastEntryIdx()
 	if lastIndex < 0 {
-		return types.BlockSeal{}, types.BlockSeal{}, types.ErrFuture
+		return LinkEntry{}, types.ErrFuture
 	}
 	last, err := db.readAt(lastIndex)
 	if err != nil {
-		return types.BlockSeal{}, types.BlockSeal{}, fmt.Errorf("failed to read last derivation data: %w", err)
+		return LinkEntry{}, fmt.Errorf("failed to read last derivation data: %w", err)
 	}
-	return last.derivedFrom, last.derived, nil
+	return last, nil
 }
 
 // LastDerivedAt returns the last L2 block derived from the given L1 block.

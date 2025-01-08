@@ -127,3 +127,21 @@ type AnchorEvent struct {
 func (ev AnchorEvent) String() string {
 	return "anchor"
 }
+
+type NonCrossSafeEvent struct {
+	ChainID   eth.ChainID
+	Candidate types.DerivedBlockRefPair
+}
+
+func (ev NonCrossSafeEvent) String() string {
+	return "non-cross-safe"
+}
+
+type ReplaceBlockEvent struct {
+	ChainID     eth.ChainID
+	Replacement eth.BlockRef
+}
+
+func (ev ReplaceBlockEvent) String() string {
+	return "replace-block-event"
+}

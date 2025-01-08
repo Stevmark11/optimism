@@ -84,6 +84,11 @@ func (m *ManagedNode) AttachEmitter(em event.Emitter) {
 
 func (m *ManagedNode) OnEvent(ev event.Event) bool {
 	switch x := ev.(type) {
+	case superevents.NonCrossSafeEvent:
+		if x.ChainID != m.chainID {
+			return false
+		}
+		m.onNonCrossSafe(x.Candidate)
 	case superevents.CrossUnsafeUpdateEvent:
 		if x.ChainID != m.chainID {
 			return false
@@ -207,6 +212,9 @@ func (m *ManagedNode) onNodeEvent(ev *types.ManagedEvent) {
 	}
 	if ev.ExhaustL1 != nil {
 		m.onExhaustL1Event(*ev.ExhaustL1)
+	}
+	if ev.ReplaceBlock != nil {
+		m.onReplaceBlock(*ev.ReplaceBlock)
 	}
 }
 
@@ -414,6 +422,28 @@ func (m *ManagedNode) onExhaustL1Event(completed types.DerivedBlockRefPair) {
 		// but does not fit on the derivation state.
 		return
 	}
+}
+
+// onNonCrossSafe listens for when a block is invalidated as not-cross-safe, and has to be replaced.
+func (m *ManagedNode) onNonCrossSafe(invalidated types.DerivedBlockRefPair) {
+	m.log.Warn("Instructing node to replace invalidated block",
+		"invalidated", invalidated.Derived, "scope", invalidated.DerivedFrom)
+
+	ctx, cancel := context.WithTimeout(m.ctx, nodeTimeout)
+	defer cancel()
+	// Send instruction to the node to invalidate the block, and build a replacement block.
+	if err := m.Node.InvalidateBlock(ctx, types.BlockSealFromRef(invalidated.Derived)); err != nil {
+		m.log.Warn("Node is unable to invalidate block",
+			"invalidated", invalidated.Derived, "scope", invalidated.DerivedFrom, "err", err)
+	}
+}
+
+func (m *ManagedNode) onReplaceBlock(ref eth.BlockRef) {
+	m.log.Info("Node provided replacement block", "ref", ref)
+	m.emitter.Emit(superevents.ReplaceBlockEvent{
+		ChainID:     m.chainID,
+		Replacement: ref,
+	})
 }
 
 func (m *ManagedNode) Close() error {

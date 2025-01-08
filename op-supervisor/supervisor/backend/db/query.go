@@ -27,33 +27,35 @@ func (db *ChainsDB) LatestBlockNum(chain eth.ChainID) (num uint64, ok bool) {
 	if !knownChain {
 		return 0, false
 	}
-	return logDB.LatestSealedBlockNum()
+	bl, ok := logDB.LatestSealedBlock()
+	return bl.Number, ok
 }
 
 // LastCommonL1 returns the latest common L1 block between all chains in the database.
 // it only considers block numbers, not hash. That's because the L1 source is the same for all chains
 // this data can be used to determine the starting point for L1 processing
 func (db *ChainsDB) LastCommonL1() (types.BlockSeal, error) {
-	common := types.BlockSeal{}
+	commonL1 := types.BlockSeal{}
 	for _, chain := range db.depSet.Chains() {
 		ldb, ok := db.localDBs.Get(chain)
 		if !ok {
 			return types.BlockSeal{}, types.ErrUnknownChain
 		}
-		_, derivedFrom, err := ldb.Latest()
+		last, _, err := ldb.Latest()
 		if err != nil {
 			return types.BlockSeal{}, fmt.Errorf("failed to determine Last Common L1: %w", err)
 		}
-		common = derivedFrom
+		derivedFrom := last.DerivedFrom
+		commonL1 = derivedFrom
 		// if the common block isn't yet set,
 		// or if the new common block is older than the current common block
 		// set the common block
-		if common == (types.BlockSeal{}) ||
-			derivedFrom.Number < common.Number {
-			common = derivedFrom
+		if commonL1 == (types.BlockSeal{}) ||
+			derivedFrom.Number < commonL1.Number {
+			commonL1 = derivedFrom
 		}
 	}
-	return common, nil
+	return commonL1, nil
 }
 
 func (db *ChainsDB) IsCrossUnsafe(chainID eth.ChainID, block eth.BlockID) error {
@@ -120,11 +122,11 @@ func (db *ChainsDB) LocalUnsafe(chainID eth.ChainID) (types.BlockSeal, error) {
 	if !ok {
 		return types.BlockSeal{}, types.ErrUnknownChain
 	}
-	n, ok := eventsDB.LatestSealedBlockNum()
+	id, ok := eventsDB.LatestSealedBlock()
 	if !ok {
 		return types.BlockSeal{}, types.ErrFuture
 	}
-	return eventsDB.FindSealedBlock(n)
+	return eventsDB.FindSealedBlock(id.Number)
 }
 
 func (db *ChainsDB) CrossUnsafe(chainID eth.ChainID) (types.BlockSeal, error) {
@@ -149,8 +151,14 @@ func (db *ChainsDB) LocalSafe(chainID eth.ChainID) (pair types.DerivedBlockSealP
 	if !ok {
 		return types.DerivedBlockSealPair{}, types.ErrUnknownChain
 	}
-	df, d, err := localDB.Latest()
-	return types.DerivedBlockSealPair{DerivedFrom: df, Derived: d}, err
+	last, invalidated, err := localDB.Latest()
+	if err != nil {
+		return types.DerivedBlockSealPair{}, err
+	}
+	if invalidated {
+		return types.DerivedBlockSealPair{}, types.ErrAwaitReplacementBlock
+	}
+	return last, nil
 }
 
 func (db *ChainsDB) CrossSafe(chainID eth.ChainID) (pair types.DerivedBlockSealPair, err error) {
@@ -158,8 +166,14 @@ func (db *ChainsDB) CrossSafe(chainID eth.ChainID) (pair types.DerivedBlockSealP
 	if !ok {
 		return types.DerivedBlockSealPair{}, types.ErrUnknownChain
 	}
-	df, d, err := crossDB.Latest()
-	return types.DerivedBlockSealPair{DerivedFrom: df, Derived: d}, err
+	last, invalidated, err := crossDB.Latest()
+	if err != nil {
+		return types.DerivedBlockSealPair{}, err
+	}
+	if invalidated {
+		return types.DerivedBlockSealPair{}, types.ErrAwaitReplacementBlock
+	}
+	return last, nil
 }
 
 func (db *ChainsDB) FinalizedL1() eth.BlockRef {
@@ -177,19 +191,22 @@ func (db *ChainsDB) Finalized(chainID eth.ChainID) (types.BlockSeal, error) {
 	if !ok {
 		return types.BlockSeal{}, types.ErrUnknownChain
 	}
-	latestDerivedFrom, latestDerived, err := xDB.Latest()
+	latest, invalid, err := xDB.Latest()
 	if err != nil {
 		return types.BlockSeal{}, fmt.Errorf("could not get the latest derived pair for chain %s: %w", chainID, err)
 	}
+	if invalid {
+		return types.BlockSeal{}, fmt.Errorf("replacing cross-safe: %w", types.ErrAwaitReplacementBlock)
+	}
 	// if the finalized L1 block is newer than the latest L1 block used to derive L2 blocks,
 	// the finality signal automatically applies to all previous blocks, including the latest derived block
-	if finalizedL1.Number > latestDerivedFrom.Number {
+	if finalizedL1.Number > latest.DerivedFrom.Number {
 		db.logger.Warn("Finalized L1 block is newer than the latest L1 for this chain. Assuming latest L2 is finalized",
 			"chain", chainID,
-			"finalizedL1", finalizedL1.Number,
-			"latestDerivedFrom", latestDerivedFrom.Number,
-			"latestDerived", latestDerivedFrom)
-		return latestDerived, nil
+			"finalizedL1", finalizedL1,
+			"latestDerivedFrom", latest.DerivedFrom,
+			"latestDerived", latest.Derived)
+		return latest.Derived, nil
 	}
 
 	// otherwise, use the finalized L1 block to determine the final L2 block that was derived from it
@@ -282,7 +299,8 @@ func (db *ChainsDB) CrossDerivedFrom(chain eth.ChainID, derived eth.BlockID) (de
 	return xDB.DerivedFrom(derived)
 }
 
-// CandidateCrossSafe returns the candidate local-safe block that may become cross-safe.
+// CandidateCrossSafe returns the candidate local-safe block that may become cross-safe,
+// and what L1 block it may potentially be cross-safe derived from.
 //
 // This returns ErrFuture if no block is known yet.
 //
@@ -290,15 +308,15 @@ func (db *ChainsDB) CrossDerivedFrom(chain eth.ChainID, derived eth.BlockID) (de
 //
 // Or ErrOutOfScope, with non-zero derivedFromScope,
 // if additional L1 data is needed to cross-verify the candidate L2 block.
-func (db *ChainsDB) CandidateCrossSafe(chain eth.ChainID) (derivedFromScope, crossSafe eth.BlockRef, err error) {
+func (db *ChainsDB) CandidateCrossSafe(chain eth.ChainID) (result types.DerivedBlockRefPair, err error) {
 	xDB, ok := db.crossDBs.Get(chain)
 	if !ok {
-		return eth.BlockRef{}, eth.BlockRef{}, types.ErrUnknownChain
+		return types.DerivedBlockRefPair{}, types.ErrUnknownChain
 	}
 
 	lDB, ok := db.localDBs.Get(chain)
 	if !ok {
-		return eth.BlockRef{}, eth.BlockRef{}, types.ErrUnknownChain
+		return types.DerivedBlockRefPair{}, types.ErrUnknownChain
 	}
 
 	// Example:
@@ -312,13 +330,13 @@ func (db *ChainsDB) CandidateCrossSafe(chain eth.ChainID) (derivedFromScope, cro
 	// (D, 2) -> 2 is in scope, stay on D, promote candidate to cross-safe
 	// (D, 3) -> look at 3 next, see if we have to bump L1 yet, try with same L1 scope first
 
-	crossDerivedFrom, crossDerived, err := xDB.Latest()
+	crossSafe, invalidatedCrossSafe, err := xDB.Latest()
 	if err != nil {
 		if errors.Is(err, types.ErrFuture) {
 			// If we do not have any cross-safe block yet, then return the first local-safe block.
 			derivedFrom, derived, err := lDB.First()
 			if err != nil {
-				return eth.BlockRef{}, eth.BlockRef{}, fmt.Errorf("failed to find first local-safe block: %w", err)
+				return types.DerivedBlockRefPair{}, fmt.Errorf("failed to find first local-safe block: %w", err)
 			}
 			// the first derivedFrom (L1 block) is unlikely to be the genesis block,
 			derivedFromRef, err := derivedFrom.WithParent(eth.BlockID{})
@@ -329,10 +347,20 @@ func (db *ChainsDB) CandidateCrossSafe(chain eth.ChainID) (derivedFromScope, cro
 			}
 			// the first derived must be the genesis block, panic otherwise
 			derivedRef := derived.MustWithParent(eth.BlockID{})
-			return derivedFromRef, derivedRef, nil
+			return types.DerivedBlockRefPair{
+				DerivedFrom: derivedFromRef,
+				Derived:     derivedRef,
+			}, nil
 		}
-		return eth.BlockRef{}, eth.BlockRef{}, err
+		return types.DerivedBlockRefPair{}, err
 	}
+	if invalidatedCrossSafe {
+		// If we cannot promote due to need for replacement, then abort
+		return types.DerivedBlockRefPair{}, fmt.Errorf("last candidate block %s is invalidated: %w", crossSafe, types.ErrAwaitReplacementBlock)
+	}
+	crossDerivedFrom := crossSafe.DerivedFrom
+	crossDerived := crossSafe.Derived
+
 	// Find the local-safe block that comes right after the last seen cross-safe block.
 	// Just L2 block by block traversal, conditional on being local-safe.
 	// This will be the candidate L2 block to promote.
@@ -342,7 +370,7 @@ func (db *ChainsDB) CandidateCrossSafe(chain eth.ChainID) (derivedFromScope, cro
 	// This method will keep returning the latest known scope that has been verified to be cross-safe.
 	candidateFrom, candidate, err := lDB.NextDerived(crossDerived.ID())
 	if err != nil {
-		return eth.BlockRef{}, eth.BlockRef{}, err
+		return types.DerivedBlockRefPair{}, err
 	}
 
 	candidateRef := candidate.MustWithParent(crossDerived.ID())
@@ -353,7 +381,7 @@ func (db *ChainsDB) CandidateCrossSafe(chain eth.ChainID) (derivedFromScope, cro
 	if errors.Is(err, types.ErrPreviousToFirst) {
 		parentDerivedFrom = types.BlockSeal{}
 	} else if err != nil {
-		return eth.BlockRef{}, eth.BlockRef{}, fmt.Errorf("failed to find parent-block of derived-from %s: %w", candidateFrom, err)
+		return types.DerivedBlockRefPair{}, fmt.Errorf("failed to find parent-block of derived-from %s: %w", candidateFrom, err)
 	}
 	candidateFromRef := candidateFrom.MustWithParent(parentDerivedFrom.ID())
 
@@ -368,16 +396,22 @@ func (db *ChainsDB) CandidateCrossSafe(chain eth.ChainID) (derivedFromScope, cro
 		if errors.Is(err, types.ErrPreviousToFirst) {
 			crossDerivedFromRef = crossDerivedFrom.ForceWithParent(eth.BlockID{})
 		} else if err != nil {
-			return eth.BlockRef{}, eth.BlockRef{},
+			return types.DerivedBlockRefPair{},
 				fmt.Errorf("failed to find parent-block of cross-derived-from %s: %w", crossDerivedFrom, err)
 		} else {
 			crossDerivedFromRef = crossDerivedFrom.MustWithParent(parent.ID())
 		}
-		return crossDerivedFromRef, eth.BlockRef{},
+		return types.DerivedBlockRefPair{
+				DerivedFrom: crossDerivedFromRef,
+				Derived:     eth.BlockRef{},
+			},
 			fmt.Errorf("candidate is from %s, while current scope is %s: %w",
 				candidateFrom, crossDerivedFrom, types.ErrOutOfScope)
 	}
-	return candidateFromRef, candidateRef, nil
+	return types.DerivedBlockRefPair{
+		DerivedFrom: candidateFromRef,
+		Derived:     candidateRef,
+	}, nil
 }
 
 func (db *ChainsDB) PreviousDerived(chain eth.ChainID, derived eth.BlockID) (prevDerived types.BlockSeal, err error) {

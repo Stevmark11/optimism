@@ -26,9 +26,9 @@ type LogStorage interface {
 
 	SealBlock(parentHash common.Hash, block eth.BlockID, timestamp uint64) error
 
-	Rewind(newHeadBlockNum uint64) error
+	Rewind(newHead eth.BlockID) error
 
-	LatestSealedBlockNum() (n uint64, ok bool)
+	LatestSealedBlock() (id eth.BlockID, ok bool)
 
 	// FindSealedBlock finds the requested block by number, to check if it exists,
 	// returning the block seal if it was found.
@@ -52,8 +52,10 @@ type LogStorage interface {
 
 type LocalDerivedFromStorage interface {
 	First() (derivedFrom types.BlockSeal, derived types.BlockSeal, err error)
-	Latest() (derivedFrom types.BlockSeal, derived types.BlockSeal, err error)
+	Latest() (pair types.DerivedBlockSealPair, invalidated bool, err error)
 	AddDerived(derivedFrom eth.BlockRef, derived eth.BlockRef) error
+	ReplaceInvalidatedBlock(replacementDerived eth.BlockRef, invalidated common.Hash) error
+	RewindAndInvalidate(invalidated types.DerivedBlockRefPair) error
 	LastDerivedAt(derivedFrom eth.BlockID) (derived types.BlockSeal, err error)
 	DerivedFrom(derived eth.BlockID) (derivedFrom types.BlockSeal, err error)
 	FirstAfter(derivedFrom, derived eth.BlockID) (nextDerivedFrom, nextDerived types.BlockSeal, err error)
@@ -168,15 +170,15 @@ func (db *ChainsDB) AddCrossUnsafeTracker(chainID eth.ChainID) {
 func (db *ChainsDB) ResumeFromLastSealedBlock() error {
 	var result error
 	db.logDBs.Range(func(chain eth.ChainID, logStore LogStorage) bool {
-		headNum, ok := logStore.LatestSealedBlockNum()
+		head, ok := logStore.LatestSealedBlock()
 		if !ok {
 			// db must be empty, nothing to rewind to
 			db.logger.Info("Resuming, but found no DB contents", "chain", chain)
 			return true
 		}
-		db.logger.Info("Resuming, starting from last sealed block", "head", headNum)
-		if err := logStore.Rewind(headNum); err != nil {
-			result = fmt.Errorf("failed to rewind chain %s to sealed block %d", chain, headNum)
+		db.logger.Info("Resuming, starting from last sealed block", "head", head)
+		if err := logStore.Rewind(head); err != nil {
+			result = fmt.Errorf("failed to rewind chain %s to sealed block %d", chain, head)
 			return false
 		}
 		return true

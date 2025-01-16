@@ -732,8 +732,11 @@ contract OptimismPortal2_FinalizeWithdrawal_Test is CommonTest {
         });
 
         // Create a new game.
-        IDisputeGame newGame =
-            disputeGameFactory.create(GameType.wrap(0), Claim.wrap(_outputRoot), abi.encode(_proposedBlockNumber + 1));
+        IDisputeGame newGame = disputeGameFactory.create(
+            GameType.wrap(0),
+            Claim.wrap(0x304c83facf0d8c059dcaf50c3dea09df17261d1686da5a5e9b5dbbd842ea50f2),
+            abi.encode(_proposedBlockNumber + 1)
+        );
 
         // Update the respected game type to 0xbeef.
         vm.prank(optimismPortal2.guardian());

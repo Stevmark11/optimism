@@ -135,18 +135,21 @@ func (db *DB) Rewind(derivedFrom uint64) error {
 }
 
 // First returns the first known values, alike to Latest.
-func (db *DB) First() (derivedFrom types.BlockSeal, derived types.BlockSeal, err error) {
+func (db *DB) First() (pair types.DerivedBlockSealPair, err error) {
 	db.rwLock.RLock()
 	defer db.rwLock.RUnlock()
 	lastIndex := db.store.LastEntryIdx()
 	if lastIndex < 0 {
-		return types.BlockSeal{}, types.BlockSeal{}, types.ErrFuture
+		return types.DerivedBlockSealPair{}, types.ErrFuture
 	}
 	last, err := db.readAt(0)
 	if err != nil {
-		return types.BlockSeal{}, types.BlockSeal{}, fmt.Errorf("failed to read first derivation data: %w", err)
+		return types.DerivedBlockSealPair{}, fmt.Errorf("failed to read first derivation data: %w", err)
 	}
-	return last.derivedFrom, last.derived, nil
+	return types.DerivedBlockSealPair{
+		DerivedFrom: last.derivedFrom,
+		Derived:     last.derived,
+	}, nil
 }
 
 func (db *DB) PreviousDerived(derived eth.BlockID) (prevDerived types.BlockSeal, err error) {

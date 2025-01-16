@@ -31,10 +31,11 @@ func TestBadUpdates(t *testing.T) {
 	fDerived := mockL2(206)
 
 	noChange := assertFn(func(t *testing.T, db *DB, m *stubMetrics) {
-		derivedFrom, derived, err := db.Latest()
+		pair, invalidated, err := db.Latest()
 		require.NoError(t, err)
-		require.Equal(t, dDerivedFrom, derivedFrom)
-		require.Equal(t, dDerived, derived)
+		require.Equal(t, dDerivedFrom, pair.DerivedFrom)
+		require.Equal(t, dDerived, pair.Derived)
+		require.False(t, invalidated)
 	})
 
 	testCases := []testCase{
@@ -69,10 +70,11 @@ func TestBadUpdates(t *testing.T) {
 				require.NoError(t, db.AddDerived(toRef(dDerivedFrom, common.Hash{0x42}), toRef(eDerived, dDerived.Hash)), types.ErrConflict)
 			},
 			assertFn: func(t *testing.T, db *DB, m *stubMetrics) {
-				derivedFrom, derived, err := db.Latest()
+				pair, invalidated, err := db.Latest()
 				require.NoError(t, err)
-				require.Equal(t, dDerivedFrom, derivedFrom)
-				require.Equal(t, eDerived, derived)
+				require.Equal(t, dDerivedFrom, pair.DerivedFrom)
+				require.Equal(t, eDerived, pair.Derived)
+				require.False(t, invalidated)
 			},
 		},
 		{
@@ -120,10 +122,11 @@ func TestBadUpdates(t *testing.T) {
 				require.NoError(t, db.AddDerived(toRef(eDerivedFrom, dDerivedFrom.Hash), toRef(dDerived, common.Hash{0x42})), types.ErrConflict)
 			},
 			assertFn: func(t *testing.T, db *DB, m *stubMetrics) {
-				derivedFrom, derived, err := db.Latest()
+				pair, invalidated, err := db.Latest()
 				require.NoError(t, err)
-				require.Equal(t, eDerivedFrom, derivedFrom)
-				require.Equal(t, dDerived, derived)
+				require.Equal(t, eDerivedFrom, pair.DerivedFrom)
+				require.Equal(t, dDerived, pair.Derived)
+				require.False(t, invalidated)
 			},
 		},
 		{

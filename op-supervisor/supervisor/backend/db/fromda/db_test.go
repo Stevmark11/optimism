@@ -75,7 +75,7 @@ func TestEmptyDB(t *testing.T) {
 			_, _, err := db.Latest()
 			require.ErrorIs(t, err, types.ErrFuture)
 
-			_, _, err = db.First()
+			_, err = db.First()
 			require.ErrorIs(t, err, types.ErrFuture)
 
 			_, err = db.LastDerivedAt(eth.BlockID{})
@@ -139,23 +139,24 @@ func TestSingleEntryDB(t *testing.T) {
 		},
 		func(t *testing.T, db *DB, m *stubMetrics) {
 			// First
-			derivedFrom, derived, err := db.First()
+			pair, err := db.First()
 			require.NoError(t, err)
-			require.Equal(t, expectedDerivedFrom, derivedFrom)
-			require.Equal(t, expectedDerived, derived)
+			require.Equal(t, expectedDerivedFrom, pair.DerivedFrom)
+			require.Equal(t, expectedDerived, pair.Derived)
 
 			// Latest
-			derivedFrom, derived, err = db.Latest()
+			pair, invalid, err := db.Latest()
 			require.NoError(t, err)
-			require.Equal(t, expectedDerivedFrom, derivedFrom)
-			require.Equal(t, expectedDerived, derived)
+			require.Equal(t, expectedDerivedFrom, pair.DerivedFrom)
+			require.Equal(t, expectedDerived, pair.Derived)
+			require.False(t, invalid)
 
 			// FirstAfter Latest
-			_, _, err = db.FirstAfter(derivedFrom.ID(), derived.ID())
+			_, _, err = db.FirstAfter(pair.DerivedFrom.ID(), pair.Derived.ID())
 			require.ErrorIs(t, err, types.ErrFuture)
 
 			// LastDerivedAt
-			derived, err = db.LastDerivedAt(expectedDerivedFrom.ID())
+			derived, err := db.LastDerivedAt(expectedDerivedFrom.ID())
 			require.NoError(t, err)
 			require.Equal(t, expectedDerived, derived)
 
@@ -170,7 +171,7 @@ func TestSingleEntryDB(t *testing.T) {
 			require.ErrorIs(t, err, types.ErrConflict)
 
 			// DerivedFrom
-			derivedFrom, err = db.DerivedFrom(expectedDerived.ID())
+			derivedFrom, err := db.DerivedFrom(expectedDerived.ID())
 			require.NoError(t, err)
 			require.Equal(t, expectedDerivedFrom, derivedFrom)
 
@@ -235,24 +236,25 @@ func TestThreeEntryDB(t *testing.T) {
 		require.NoError(t, db.AddDerived(toRef(l1Block2, l1Block1.Hash), toRef(l2Block2, l2Block1.Hash)))
 	}, func(t *testing.T, db *DB, m *stubMetrics) {
 
-		derivedFrom, derived, err := db.Latest()
+		pair, invalid, err := db.Latest()
 		require.NoError(t, err)
-		require.Equal(t, l1Block2, derivedFrom)
-		require.Equal(t, l2Block2, derived)
+		require.Equal(t, l1Block2, pair.DerivedFrom)
+		require.Equal(t, l2Block2, pair.Derived)
+		require.False(t, invalid)
 
-		derivedFrom, derived, err = db.First()
+		pair, err = db.First()
 		require.NoError(t, err)
-		require.Equal(t, l1Block0, derivedFrom)
-		require.Equal(t, l2Block0, derived)
+		require.Equal(t, l1Block0, pair.DerivedFrom)
+		require.Equal(t, l2Block0, pair.Derived)
 
-		derived, err = db.LastDerivedAt(l1Block2.ID())
+		derived, err := db.LastDerivedAt(l1Block2.ID())
 		require.NoError(t, err)
 		require.Equal(t, l2Block2, derived)
 
 		_, err = db.LastDerivedAt(eth.BlockID{Hash: common.Hash{0xaa}, Number: l1Block2.Number})
 		require.ErrorIs(t, err, types.ErrConflict)
 
-		derivedFrom, err = db.DerivedFrom(l2Block2.ID())
+		derivedFrom, err := db.DerivedFrom(l2Block2.ID())
 		require.NoError(t, err)
 		require.Equal(t, l1Block2, derivedFrom)
 
@@ -364,17 +366,18 @@ func TestFastL2Batcher(t *testing.T) {
 		require.NoError(t, db.AddDerived(toRef(l1Block2, l1Block1.Hash), toRef(l2Block5, l2Block4.Hash)))
 	}, func(t *testing.T, db *DB, m *stubMetrics) {
 
-		derivedFrom, derived, err := db.Latest()
+		pair, invalid, err := db.Latest()
 		require.NoError(t, err)
-		require.Equal(t, l1Block2, derivedFrom)
-		require.Equal(t, l2Block5, derived)
+		require.Equal(t, l1Block2, pair.DerivedFrom)
+		require.Equal(t, l2Block5, pair.Derived)
+		require.False(t, invalid)
 
-		derived, err = db.LastDerivedAt(l1Block2.ID())
+		derived, err := db.LastDerivedAt(l1Block2.ID())
 		require.NoError(t, err)
 		require.Equal(t, l2Block5, derived)
 
 		// test what tip was derived from
-		derivedFrom, err = db.DerivedFrom(l2Block5.ID())
+		derivedFrom, err := db.DerivedFrom(l2Block5.ID())
 		require.NoError(t, err)
 		require.Equal(t, l1Block2, derivedFrom)
 
@@ -478,13 +481,14 @@ func TestSlowL2Batcher(t *testing.T) {
 		require.NoError(t, db.AddDerived(toRef(l1Block5, l1Block4.Hash), toRef(l2Block2, l2Block1.Hash)))
 	}, func(t *testing.T, db *DB, m *stubMetrics) {
 
-		derivedFrom, derived, err := db.Latest()
+		pair, invalid, err := db.Latest()
 		require.NoError(t, err)
-		require.Equal(t, l1Block5, derivedFrom)
-		require.Equal(t, l2Block2, derived)
+		require.Equal(t, l1Block5, pair.DerivedFrom)
+		require.Equal(t, l2Block2, pair.Derived)
+		require.False(t, invalid)
 
 		// test what we last derived at the tip
-		derived, err = db.LastDerivedAt(l1Block5.ID())
+		derived, err := db.LastDerivedAt(l1Block5.ID())
 		require.NoError(t, err)
 		require.Equal(t, l2Block2, derived)
 
@@ -496,7 +500,7 @@ func TestSlowL2Batcher(t *testing.T) {
 		}
 
 		// test that the first L1 counts, not the ones that repeat the L2 info
-		derivedFrom, err = db.DerivedFrom(l2Block1.ID())
+		derivedFrom, err := db.DerivedFrom(l2Block1.ID())
 		require.NoError(t, err)
 		require.Equal(t, l1Block1, derivedFrom)
 
@@ -586,34 +590,36 @@ func testManyEntryDB(t *testing.T, offsetL1 uint64, offsetL2 uint64) {
 		rng := rand.New(rand.NewSource(1234))
 		// Insert 1000 randomly generated entries, derived at random bumps in L1
 		for i := uint64(0); i < 1000; i++ {
-			derivedFrom, derived, err := db.Latest()
+			pair, invalid, err := db.Latest()
 			require.NoError(t, err)
+			require.False(t, invalid)
 
 			switch rng.Intn(3) {
 			case 0: // bump L1
-				derivedFrom = mockL1(derivedFrom.Number + 1)
+				pair.DerivedFrom = mockL1(pair.DerivedFrom.Number + 1)
 			case 1: // bump L2
-				derived = mockL2(derived.Number + 1)
+				pair.Derived = mockL2(pair.Derived.Number + 1)
 			case 2: // bump both
-				derivedFrom = mockL1(derivedFrom.Number + 1)
-				derived = mockL2(derived.Number + 1)
+				pair.DerivedFrom = mockL1(pair.DerivedFrom.Number + 1)
+				pair.Derived = mockL2(pair.Derived.Number + 1)
 			}
-			derivedFromRef := toRef(derivedFrom, mockL1(derivedFrom.Number-1).Hash)
-			derivedRef := toRef(derived, mockL2(derived.Number-1).Hash)
-			lastDerived[derivedFromRef.ID()] = derived
+			derivedFromRef := toRef(pair.DerivedFrom, mockL1(pair.DerivedFrom.Number-1).Hash)
+			derivedRef := toRef(pair.Derived, mockL2(pair.Derived.Number-1).Hash)
+			lastDerived[derivedFromRef.ID()] = pair.Derived
 			if _, ok := firstDerivedFrom[derivedRef.ID()]; !ok {
-				firstDerivedFrom[derivedRef.ID()] = derivedFrom
+				firstDerivedFrom[derivedRef.ID()] = pair.DerivedFrom
 			}
 			require.NoError(t, db.AddDerived(derivedFromRef, derivedRef))
 		}
 	}, func(t *testing.T, db *DB, m *stubMetrics) {
 		// Now assert we can find what they are all derived from, and match the expectations.
-		derivedFrom, derived, err := db.Latest()
+		pair, invalid, err := db.Latest()
 		require.NoError(t, err)
-		require.NotZero(t, derivedFrom.Number-offsetL1)
-		require.NotZero(t, derived.Number-offsetL2)
+		require.NotZero(t, pair.DerivedFrom.Number-offsetL1)
+		require.NotZero(t, pair.Derived.Number-offsetL2)
+		require.False(t, invalid)
 
-		for i := offsetL1; i <= derivedFrom.Number; i++ {
+		for i := offsetL1; i <= pair.DerivedFrom.Number; i++ {
 			l1ID := mockL1(i).ID()
 			derived, err := db.LastDerivedAt(l1ID)
 			require.NoError(t, err)
@@ -621,7 +627,7 @@ func testManyEntryDB(t *testing.T, offsetL1 uint64, offsetL2 uint64) {
 			require.Equal(t, lastDerived[l1ID], derived)
 		}
 
-		for i := offsetL2; i <= derived.Number; i++ {
+		for i := offsetL2; i <= pair.Derived.Number; i++ {
 			l2ID := mockL2(i).ID()
 			derivedFrom, err := db.DerivedFrom(l2ID)
 			require.NoError(t, err)
@@ -673,42 +679,43 @@ func TestRewind(t *testing.T) {
 		require.NoError(t, db.AddDerived(toRef(l1Block5, l1Block4.Hash), toRef(l2Block2, l2Block1.Hash)))
 	}, func(t *testing.T, db *DB, m *stubMetrics) {
 
-		derivedFrom, derived, err := db.Latest()
+		pair, invalid, err := db.Latest()
 		require.NoError(t, err)
-		require.Equal(t, l1Block5, derivedFrom)
-		require.Equal(t, l2Block2, derived)
+		require.Equal(t, l1Block5, pair.DerivedFrom)
+		require.Equal(t, l2Block2, pair.Derived)
+		require.False(t, invalid)
 
 		// Rewind to the future
 		require.ErrorIs(t, db.Rewind(6), types.ErrFuture)
 
 		// Rewind to the exact block we're at
 		require.NoError(t, db.Rewind(l1Block5.Number))
-		derivedFrom, derived, err = db.Latest()
+		pair, invalid, err = db.Latest()
 		require.NoError(t, err)
-		require.Equal(t, l1Block5, derivedFrom)
-		require.Equal(t, l2Block2, derived)
+		require.Equal(t, l1Block5, pair.DerivedFrom)
+		require.Equal(t, l2Block2, pair.Derived)
 
 		// Now rewind to L1 block 3 (inclusive).
 		require.NoError(t, db.Rewind(l1Block3.Number))
 
 		// See if we find consistent data
-		derivedFrom, derived, err = db.Latest()
+		pair, invalid, err = db.Latest()
 		require.NoError(t, err)
-		require.Equal(t, l1Block3, derivedFrom)
-		require.Equal(t, l2Block1, derived)
+		require.Equal(t, l1Block3, pair.DerivedFrom)
+		require.Equal(t, l2Block1, pair.Derived)
 
 		// Rewind further to L1 block 1 (inclusive).
 		require.NoError(t, db.Rewind(l1Block1.Number))
-		derivedFrom, derived, err = db.Latest()
+		pair, invalid, err = db.Latest()
 		require.NoError(t, err)
-		require.Equal(t, l1Block1, derivedFrom)
-		require.Equal(t, l2Block1, derived)
+		require.Equal(t, l1Block1, pair.DerivedFrom)
+		require.Equal(t, l2Block1, pair.Derived)
 
 		// Rewind further to L1 block 0 (inclusive).
 		require.NoError(t, db.Rewind(l1Block0.Number))
-		derivedFrom, derived, err = db.Latest()
+		pair, invalid, err = db.Latest()
 		require.NoError(t, err)
-		require.Equal(t, l1Block0, derivedFrom)
-		require.Equal(t, l2Block0, derived)
+		require.Equal(t, l1Block0, pair.DerivedFrom)
+		require.Equal(t, l2Block0, pair.Derived)
 	})
 }

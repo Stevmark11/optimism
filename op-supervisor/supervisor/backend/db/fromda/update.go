@@ -29,7 +29,7 @@ func (db *DB) addLink(derivedFrom eth.BlockRef, derived eth.BlockRef, invalidate
 			Number:    derived.Number,
 			Timestamp: derived.Time,
 		},
-		invalidated: derived.Hash == invalidated,
+		invalidated: (invalidated != common.Hash{}) && derived.Hash == invalidated,
 	}
 	// If we don't have any entries yet, allow any block to start things off
 	if db.store.Size() == 0 {

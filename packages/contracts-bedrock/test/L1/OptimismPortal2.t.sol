@@ -227,6 +227,7 @@ contract OptimismPortal2_Test is CommonTest {
     )
         external
     {
+        skipIfForkTest("OptimismPortal2_test:  due to flaky OOG behavior on Sepolia testnet");
         _gasLimit = uint64(
             bound(
                 _gasLimit,
@@ -274,6 +275,7 @@ contract OptimismPortal2_Test is CommonTest {
     )
         external
     {
+        skipIfForkTest("OptimismPortal2_test:  due to flaky OOG behavior on Sepolia testnet");
         _gasLimit = uint64(
             bound(
                 _gasLimit,

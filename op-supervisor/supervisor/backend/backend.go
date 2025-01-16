@@ -567,3 +567,8 @@ func (su *SupervisorBackend) PullFinalizedL1() error {
 func (su *SupervisorBackend) SetConfDepthL1(depth uint64) {
 	su.l1Accessor.SetConfDepth(depth)
 }
+
+// Reset rolls back the state of the supervisor for the given chain.
+func (su *SupervisorBackend) Reset(chain eth.ChainID, blockNum uint64) error {
+	return su.chainDBs.Rewind(chain, blockNum)
+}

@@ -27,7 +27,8 @@ import { ISystemConfig } from "interfaces/L1/ISystemConfig.sol";
 
 // Contracts
 import { OPContractsManager } from "src/L1/OPContractsManager.sol";
-import { Blueprint } from "src/libraries/Blueprint.sol";
+import { SuperchainConfig } from "src/L1/SuperchainConfig.sol";
+import { ProtocolVersions } from "src/L1/ProtocolVersions.sol";
 import { DisputeGameFactory } from "src/dispute/DisputeGameFactory.sol";
 import { L1ERC721Bridge } from "src/L1/L1ERC721Bridge.sol";
 import { OptimismPortal2 } from "src/L1/OptimismPortal2.sol";
@@ -196,6 +197,7 @@ contract OPContractsManager_Upgrade_Harness is CommonTest {
 
     uint256 l2ChainId;
     IProxyAdmin proxyAdmin;
+    IProxyAdmin superchainProxyAdmin;
     address upgrader;
     OPContractsManager.OpChain[] opChains;
 
@@ -208,6 +210,7 @@ contract OPContractsManager_Upgrade_Harness is CommonTest {
         }
 
         proxyAdmin = IProxyAdmin(EIP1967Helper.getAdmin(address(systemConfig)));
+        superchainProxyAdmin = IProxyAdmin(EIP1967Helper.getAdmin(address(superchainConfig)));
         upgrader = proxyAdmin.owner();
         vm.label(upgrader, "ProxyAdmin Owner");
 
@@ -239,6 +242,8 @@ contract OPContractsManager_Upgrade_Test is OPContractsManager_Upgrade_Harness {
         address newAnchorStateRegistryProxy = vm.computeCreate2Address(salt, keccak256(initCode), upgrader);
         vm.label(newAnchorStateRegistryProxy, "NewAnchorStateRegistryProxy");
 
+        expectEmitUpgraded(impls.superchainConfigImpl, address(superchainConfig));
+        expectEmitUpgraded(impls.protocolVersionsImpl, address(protocolVersions));
         expectEmitUpgraded(impls.systemConfigImpl, address(systemConfig));
         vm.expectEmit(address(addressManager));
         emit AddressSet("OVM_L1CrossDomainMessenger", impls.l1CrossDomainMessengerImpl, oldL1CrossDomainMessenger);
@@ -258,7 +263,9 @@ contract OPContractsManager_Upgrade_Test is OPContractsManager_Upgrade_Harness {
         vm.expectEmit(address(upgrader));
         emit Upgraded(l2ChainId, opChains[0].systemConfigProxy, address(upgrader));
 
-        DelegateCaller(upgrader).dcForward(address(opcm), abi.encodeCall(OPContractsManager.upgrade, (opChains)));
+        DelegateCaller(upgrader).dcForward(
+            address(opcm), abi.encodeCall(OPContractsManager.upgrade, (superchainProxyAdmin, opChains))
+        );
 
         assertEq(impls.systemConfigImpl, EIP1967Helper.getImplementation(address(systemConfig)));
         assertEq(impls.l1ERC721BridgeImpl, EIP1967Helper.getImplementation(address(l1ERC721Bridge)));
@@ -289,7 +296,7 @@ contract OPContractsManager_Upgrade_TestFails is OPContractsManager_Upgrade_Harn
     function test_upgrade_notDelegateCalled_reverts() public {
         vm.prank(upgrader);
         vm.expectRevert(OPContractsManager.OnlyDelegatecall.selector);
-        opcm.upgrade(opChains);
+        opcm.upgrade(superchainProxyAdmin, opChains);
     }
 
     function test_upgrade_superchainConfigMismatch_reverts() public {
@@ -304,7 +311,9 @@ contract OPContractsManager_Upgrade_TestFails is OPContractsManager_Upgrade_Harn
         vm.expectRevert(
             abi.encodeWithSelector(OPContractsManager.SuperchainConfigMismatch.selector, address(systemConfig))
         );
-        DelegateCaller(upgrader).dcForward(address(opcm), abi.encodeCall(OPContractsManager.upgrade, (opChains)));
+        DelegateCaller(upgrader).dcForward(
+            address(opcm), abi.encodeCall(OPContractsManager.upgrade, (superchainProxyAdmin, opChains))
+        );
     }
 }
 
@@ -331,6 +340,8 @@ contract OPContractsManager_AddGameType_Test is Test {
         IPreimageOracle oracle = IPreimageOracle(address(new PreimageOracle(126000, 86400)));
 
         OPContractsManager.Implementations memory impls = OPContractsManager.Implementations({
+            superchainConfigImpl: address(new SuperchainConfig()),
+            protocolVersionsImpl: address(new ProtocolVersions()),
             l1ERC721BridgeImpl: address(new L1ERC721Bridge()),
             optimismPortalImpl: address(new OptimismPortal2(1, 1)),
             systemConfigImpl: address(new SystemConfig()),

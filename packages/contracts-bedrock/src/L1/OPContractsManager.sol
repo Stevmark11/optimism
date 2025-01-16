@@ -100,6 +100,8 @@ contract OPContractsManager is ISemver {
 
     /// @notice The latest implementation contracts for the OP Stack.
     struct Implementations {
+        address superchainConfigImpl;
+        address protocolVersionsImpl;
         address l1ERC721BridgeImpl;
         address optimismPortalImpl;
         address systemConfigImpl;
@@ -212,6 +214,9 @@ contract OPContractsManager is ISemver {
 
     /// @notice Thrown when the SuperchainConfig of the chain does not match the SuperchainConfig of this OPCM.
     error SuperchainConfigMismatch(ISystemConfig systemConfig);
+
+    /// @notice Thrown when the SuperchainProxyAdmin does not match the SuperchainConfig's admin.
+    error SuperchainProxyAdminMismatch();
 
     // -------- Methods --------
 
@@ -413,12 +418,17 @@ contract OPContractsManager is ISemver {
     /// @notice Upgrades a set of chains to the latest implementation contracts
     /// @param _opChains Array of OpChain structs, one per chain to upgrade
     /// @dev This function is intended to be called via DELEGATECALL from the Upgrade Controller Safe
-    function upgrade(OpChain[] memory _opChains) external {
+    function upgrade(IProxyAdmin _superchainProxyAdmin, OpChain[] memory _opChains) external {
         if (address(this) == address(thisOPCM)) revert OnlyDelegatecall();
 
         Implementations memory impls = thisOPCM.implementations();
         Blueprints memory bps = thisOPCM.blueprints();
-        // TODO: upgrading the SuperchainConfig and ProtocolVersions (in a new function)
+
+        if (address(_superchainProxyAdmin) != address(0)) {
+            // Attempt to upgrade. If the ProxyAdmin is not the SuperchainConfig's admin, this will revert.
+            upgradeTo(_superchainProxyAdmin, address(superchainConfig), impls.superchainConfigImpl);
+            upgradeTo(_superchainProxyAdmin, address(protocolVersions), impls.protocolVersionsImpl);
+        }
 
         for (uint256 i = 0; i < _opChains.length; i++) {
             // After Upgrade 12, we will be able to use systemConfigProxy.getAddresses() here.

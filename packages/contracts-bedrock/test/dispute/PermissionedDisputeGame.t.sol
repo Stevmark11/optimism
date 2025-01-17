@@ -151,9 +151,10 @@ contract PermissionedDisputeGame_Test is PermissionedDisputeGame_Init {
 
     /// @dev Tests that the proposer can create a permissioned dispute game.
     function test_createGame_proposer_succeeds() public {
+        (, uint256 l2BlockNumber) = anchorStateRegistry.getAnchorRoot();
         uint256 bondAmount = disputeGameFactory.initBonds(GAME_TYPE);
         vm.prank(PROPOSER, PROPOSER);
-        disputeGameFactory.create{ value: bondAmount }(GAME_TYPE, rootClaim, extraData);
+        disputeGameFactory.create{ value: bondAmount }(GAME_TYPE, rootClaim, abi.encode(l2BlockNumber + 2));
     }
 
     /// @dev Tests that the permissioned game cannot be created by any address other than the proposer.

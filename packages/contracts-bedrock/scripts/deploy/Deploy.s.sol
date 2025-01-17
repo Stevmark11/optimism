@@ -37,7 +37,6 @@ import { GameType, Claim, GameTypes, OutputRoot, Hash } from "src/dispute/lib/Ty
 // Interfaces
 import { IProxy } from "interfaces/universal/IProxy.sol";
 import { IProxyAdmin } from "interfaces/universal/IProxyAdmin.sol";
-import { IOptimismPortal2 } from "interfaces/L1/IOptimismPortal2.sol";
 import { ISuperchainConfig } from "interfaces/L1/ISuperchainConfig.sol";
 import { ISystemConfig } from "interfaces/L1/ISystemConfig.sol";
 import { IDataAvailabilityChallenge } from "interfaces/L1/IDataAvailabilityChallenge.sol";
@@ -207,7 +206,7 @@ contract Deploy is Deployer {
 
         // Set the respected game type according to the deploy config
         vm.startPrank(ISuperchainConfig(artifacts.mustGetAddress("SuperchainConfigProxy")).guardian());
-        IOptimismPortal2(artifacts.mustGetAddress("OptimismPortalProxy")).setRespectedGameType(
+        IAnchorStateRegistry(artifacts.mustGetAddress("AnchorStateRegistryProxy")).setRespectedGameType(
             GameType.wrap(uint32(cfg.respectedGameType()))
         );
         vm.stopPrank();

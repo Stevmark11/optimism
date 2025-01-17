@@ -191,13 +191,13 @@ contract OPContractsManager_AddGameType_Test is Test {
 
         OPContractsManager.Implementations memory impls = OPContractsManager.Implementations({
             l1ERC721BridgeImpl: address(new L1ERC721Bridge()),
-            optimismPortalImpl: address(new OptimismPortal2(1, 1)),
+            optimismPortalImpl: address(new OptimismPortal2(1)),
             systemConfigImpl: address(new SystemConfig()),
             optimismMintableERC20FactoryImpl: address(new OptimismMintableERC20Factory()),
             l1CrossDomainMessengerImpl: address(new L1CrossDomainMessenger()),
             l1StandardBridgeImpl: address(new L1StandardBridge()),
             disputeGameFactoryImpl: address(new DisputeGameFactory()),
-            anchorStateRegistryImpl: address(new AnchorStateRegistry()),
+            anchorStateRegistryImpl: address(new AnchorStateRegistry(1)),
             delayedWETHImpl: address(new DelayedWETH(3)),
             mipsImpl: address(new MIPS(oracle))
         });

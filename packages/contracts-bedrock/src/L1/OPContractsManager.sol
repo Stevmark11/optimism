@@ -135,8 +135,8 @@ contract OPContractsManager is ISemver {
 
     // -------- Constants and Variables --------
 
-    /// @custom:semver 1.0.0-beta.32
-    string public constant version = "1.0.0-beta.32";
+    /// @custom:semver 1.0.0-beta.33
+    string public constant version = "1.0.0-beta.33";
 
     /// @notice Address of the SuperchainConfig contract shared by all chains.
     ISuperchainConfig public immutable superchainConfig;
@@ -591,7 +591,7 @@ contract OPContractsManager is ISemver {
                 _output.disputeGameFactoryProxy,
                 _output.systemConfigProxy,
                 superchainConfig,
-                GameTypes.PERMISSIONED_CANNON
+                _output.anchorStateRegistryProxy
             )
         );
     }
@@ -673,7 +673,7 @@ contract OPContractsManager is ISemver {
         OutputRoot memory startingAnchorRoot = abi.decode(_input.startingAnchorRoot, (OutputRoot));
         return abi.encodeCall(
             IAnchorStateRegistry.initialize,
-            (superchainConfig, _output.disputeGameFactoryProxy, _output.optimismPortalProxy, startingAnchorRoot)
+            (superchainConfig, _output.disputeGameFactoryProxy, startingAnchorRoot, GameTypes.PERMISSIONED_CANNON)
         );
     }
 

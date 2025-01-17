@@ -7,7 +7,6 @@ import { CommonTest } from "test/setup/CommonTest.sol";
 // Libraries
 import { Constants } from "src/libraries/Constants.sol";
 import { Predeploys } from "src/libraries/Predeploys.sol";
-import "src/libraries/PortalErrors.sol";
 
 // Interfaces
 import { IL1BlockInterop, ConfigType } from "interfaces/L2/IL1BlockInterop.sol";
@@ -36,7 +35,7 @@ contract OptimismPortalInterop_Test is CommonTest {
 
     /// @dev Tests that setting the gas paying token config as not the system config reverts.
     function testFuzz_setConfig_gasPayingTokenButNotSystemConfig_reverts(bytes calldata _value) public {
-        vm.expectRevert(Unauthorized.selector);
+        vm.expectRevert(IOptimismPortalInterop.OptimismPortal_Unauthorized.selector);
         _optimismPortalInterop().setConfig(ConfigType.SET_GAS_PAYING_TOKEN, _value);
     }
 
@@ -59,7 +58,7 @@ contract OptimismPortalInterop_Test is CommonTest {
 
     /// @dev Tests that setting the add dependency config as not the system config reverts.
     function testFuzz_setConfig_addDependencyButNotSystemConfig_reverts(bytes calldata _value) public {
-        vm.expectRevert(Unauthorized.selector);
+        vm.expectRevert(IOptimismPortalInterop.OptimismPortal_Unauthorized.selector);
         _optimismPortalInterop().setConfig(ConfigType.ADD_DEPENDENCY, _value);
     }
 
@@ -82,7 +81,7 @@ contract OptimismPortalInterop_Test is CommonTest {
 
     /// @dev Tests that setting the remove dependency config as not the system config reverts.
     function testFuzz_setConfig_removeDependencyButNotSystemConfig_reverts(bytes calldata _value) public {
-        vm.expectRevert(Unauthorized.selector);
+        vm.expectRevert(IOptimismPortalInterop.OptimismPortal_Unauthorized.selector);
         _optimismPortalInterop().setConfig(ConfigType.REMOVE_DEPENDENCY, _value);
     }
 

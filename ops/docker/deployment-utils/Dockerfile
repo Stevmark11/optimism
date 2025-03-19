@@ -2,7 +2,7 @@ FROM golang:1.22.7-bookworm AS go-base
 
 RUN go install github.com/tomwright/dasel/v2/cmd/dasel@master
 
-FROM debian:12.7-slim AS base
+FROM debian:12.10-slim AS base
 
 SHELL ["/bin/bash", "-c"]
 
@@ -20,7 +20,7 @@ RUN source $HOME/.profile && rustup update nightly
 RUN curl -L https://foundry.paradigm.xyz | bash
 RUN foundryup
 
-FROM debian:12.7-slim
+FROM debian:12.10-slim
 
 ENV PATH=/root/.cargo/bin:/root/.foundry/bin:$PATH
 ENV DEBIAN_FRONTEND=noninteractive
